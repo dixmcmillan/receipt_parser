@@ -4,6 +4,7 @@ import csv
 import PyPDF2
 import argparse
 import os
+from .categorizer import ReceiptCategorizer
 
 def clean_price(price_str):
     price_str = price_str.strip()
@@ -14,7 +15,11 @@ def clean_price(price_str):
 def clean_item_name(item_name):
     return ' '.join(item_name.split())
 
-def parse_walmart_receipt(pdf_path, output_csv):
+def parse_walmart_receipt(pdf_path, output_csv, categories_file=None):
+    """Parse Walmart receipt and optionally categorize items."""
+    # Ensure PDF file exists
+    if not os.path.exists(pdf_path):
+        raise FileNotFoundError(f"PDF file not found: {pdf_path}")
     # Read PDF file
     with open(pdf_path, 'rb') as file:
         pdf_reader = PyPDF2.PdfReader(file)
@@ -93,17 +98,34 @@ def parse_walmart_receipt(pdf_path, output_csv):
                     'price': tax
                 })
     
-    # Write to CSV
-    with open(output_csv, 'w', newline='', encoding='utf-8') as file:
+    # Write to temporary CSV first
+    temp_csv = output_csv + '.temp'
+    with open(temp_csv, 'w', newline='', encoding='utf-8') as file:
         writer = csv.DictWriter(file, fieldnames=['date', 'store', 'item', 'qty_wgt', 'price'])
         writer.writeheader()
         writer.writerows(items)
-    pass
+    
+    # If categories file is provided, categorize the items
+    try:
+        if categories_file:
+            categorizer = ReceiptCategorizer(categories_file)
+            categorizer.categorize_receipt(temp_csv, output_csv)
+            os.remove(temp_csv)  # Clean up temporary file
+        else:
+            # If no categorization needed, just rename temp file
+            os.rename(temp_csv, output_csv)
+    except Exception as e:
+        print(f"Error during categorization: {str(e)}")
+        # Ensure we don't leave temporary files
+        if os.path.exists(temp_csv):
+            os.remove(temp_csv)
+        raise
 
 def main():
     parser = argparse.ArgumentParser(description='Parse Walmart receipts to CSV format')
     parser.add_argument('pdf_path', help='Path to the Walmart receipt PDF')
     parser.add_argument('--output', '-o', help='Output CSV file path (optional)')
+    parser.add_argument('--categories', '-c', help='Path to categories CSV file (optional)')
     
     args = parser.parse_args()
     
@@ -112,8 +134,12 @@ def main():
         base_name = os.path.splitext(os.path.basename(args.pdf_path))[0]
         args.output = f"{base_name}_parsed.csv"
     
-    parse_walmart_receipt(args.pdf_path, args.output)
-    print(f"Parsed receipt saved to: {args.output}")
+    try:
+        parse_walmart_receipt(args.pdf_path, args.output, args.categories)
+        print(f"Parsed receipt saved to: {args.output}")
+    except Exception as e:
+        print(f"Error: {str(e)}")
+        exit(1)
 
 if __name__ == '__main__':
     main()

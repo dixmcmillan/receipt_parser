@@ -1,0 +1,2 @@
+[console_scripts]
+parse-receipt = receipt_parser.parser:main

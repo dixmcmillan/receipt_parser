@@ -1,0 +1,8 @@
+Metadata-Version: 2.1
+Name: receipt_parser
+Version: 0.1.0
+Summary: A tool to parse Walmart receipts into CSV format
+Author: Dixon McMillan
+Author-email: example@example.com
+Requires-Dist: PyPDF2>=3.0.0
+Requires-Dist: pandas>=1.0.0

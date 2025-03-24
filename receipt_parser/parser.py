@@ -20,8 +20,8 @@ def clean_item_name(item_name):
     # Clean up extra spaces and normalize item names
     return ' '.join(item_name.split())
 
-def parse_walmart_receipt(pdf_path, output_csv, categories_file=None):
-    """Parse Walmart receipt and optionally categorize items."""
+def parse_walmart_receipt(pdf_path, output_csv):
+    """Parse Walmart receipt and extract items."""
     # Ensure PDF file exists
     if not os.path.exists(pdf_path):
         raise FileNotFoundError(f"PDF file not found: {pdf_path}")
@@ -127,31 +127,15 @@ def parse_walmart_receipt(pdf_path, output_csv, categories_file=None):
                     'price': tax
                 })
     
-    # Write to temporary CSV first
-    temp_csv = output_csv + '.temp'
+    # Write to CSV
     os.makedirs(os.path.dirname(output_csv) if os.path.dirname(output_csv) else '.', exist_ok=True)
     
-    with open(temp_csv, 'w', newline='', encoding='utf-8') as file:
+    with open(output_csv, 'w', newline='', encoding='utf-8') as file:
         writer = csv.DictWriter(file, fieldnames=['date', 'store', 'item', 'qty_wgt', 'price'])
         writer.writeheader()
         writer.writerows(items)
     
-    # If categories file is provided, categorize the items
-    try:
-        if categories_file:
-            categorizer = ReceiptCategorizer(categories_file)
-            categorizer.categorize_receipt(temp_csv, output_csv)
-            os.remove(temp_csv)  # Clean up temporary file
-        else:
-            # If no categorization needed, just rename temp file
-            os.rename(temp_csv, output_csv)
-        return True
-    except Exception as e:
-        print(f"Error during categorization: {str(e)}")
-        # Ensure we don't leave temporary files
-        if os.path.exists(temp_csv):
-            os.remove(temp_csv)
-        raise
+    return True
 
 def batch_process(folder_path, output_folder, categories_file=None, combine=False):
     """
@@ -178,20 +162,39 @@ def batch_process(folder_path, output_folder, categories_file=None, combine=Fals
     successful_files = []
     failed_files = []
     
+    # Initialize categorizer if categories file is provided
+    categorizer = None
+    if categories_file:
+        from .categorizer import ReceiptCategorizer
+        categorizer = ReceiptCategorizer(categories_file)
+    
     for pdf_file in pdf_files:
         filename = os.path.basename(pdf_file)
         base_name = os.path.splitext(filename)[0]
-        output_path = os.path.join(output_folder, f"{base_name}.csv")
+        temp_output = os.path.join(output_folder, f"{base_name}_temp.csv")
+        final_output = os.path.join(output_folder, f"{base_name}.csv")
         
         print(f"Processing {filename}...")
         
         try:
-            parse_walmart_receipt(pdf_file, output_path, categories_file)
-            successful_files.append(output_path)
-            print(f"  ✓ Saved to {output_path}")
+            # First parse the receipt
+            parse_walmart_receipt(pdf_file, temp_output)
+            
+            # Then categorize if needed
+            if categorizer:
+                categorizer.categorize_receipt(temp_output, final_output, interactive=True)
+                os.remove(temp_output)  # Clean up temp file
+            else:
+                os.rename(temp_output, final_output)
+                
+            successful_files.append(final_output)
+            print(f"  ✓ Saved to {final_output}")
         except Exception as e:
             print(f"  ✗ Failed: {str(e)}")
             failed_files.append(pdf_file)
+            # Clean up temp file if it exists
+            if os.path.exists(temp_output):
+                os.remove(temp_output)
     
     # Combine all CSVs if requested
     if combine:
@@ -261,7 +264,7 @@ def main():
                 base_name = os.path.splitext(os.path.basename(pdf_path))[0]
                 args.output = f"{base_name}_parsed.csv"
             
-            parse_walmart_receipt(pdf_path, args.output, args.categories)
+            parse_walmart_receipt(pdf_path, args.output)
             print(f"Parsed receipt saved to: {args.output}")
     
     except Exception as e:

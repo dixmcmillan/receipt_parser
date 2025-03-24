@@ -1,8 +1,16 @@
 Metadata-Version: 2.1
-Name: receipt_parser
+Name: receipt-parser
 Version: 0.1.0
 Summary: A tool to parse Walmart receipts into CSV format
 Author: Dixon McMillan
 Author-email: example@example.com
-Requires-Dist: PyPDF2>=3.0.0
-Requires-Dist: pandas>=1.0.0
+Classifier: Development Status :: 3 - Alpha
+Classifier: Intended Audience :: End Users/Desktop
+Classifier: License :: OSI Approved :: MIT License
+Classifier: Programming Language :: Python :: 3
+Classifier: Programming Language :: Python :: 3.7
+Classifier: Programming Language :: Python :: 3.8
+Classifier: Programming Language :: Python :: 3.9
+Classifier: Programming Language :: Python :: 3.10
+Requires-Python: >=3.7
+Provides-Extra: dev

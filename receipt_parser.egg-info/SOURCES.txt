@@ -10,3 +10,5 @@ receipt_parser.egg-info/entry_points.txt
 receipt_parser.egg-info/requires.txt
 receipt_parser.egg-info/top_level.txt
 receipt_parser/data/categories.csv
+receipt_parser/tests/__init__.py
+receipt_parser/tests/test_parser.py

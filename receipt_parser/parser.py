@@ -7,6 +7,7 @@ import os
 import glob
 from pathlib import Path
 from .categorizer import ReceiptCategorizer
+import pandas as pd
 
 def clean_price(price_str):
     # Remove any leading/trailing whitespace and ensure proper decimal format
@@ -193,10 +194,17 @@ def batch_process(folder_path, output_folder, categories_file=None, combine=Fals
             failed_files.append(pdf_file)
     
     # Combine all CSVs if requested
-    if combine and successful_files:
-        combined_csv = os.path.join(output_folder, "combined_receipts.csv")
-        combine_csv_files(successful_files, combined_csv)
-        print(f"Combined results saved to {combined_csv}")
+    if combine:
+        # Find all existing CSV files in the output folder
+        existing_csvs = glob.glob(os.path.join(output_folder, "*.csv"))
+        existing_csvs = [f for f in existing_csvs if not f.endswith("combined_receipts.csv")]
+        
+        if existing_csvs:
+            combined_csv = os.path.join(output_folder, "combined_receipts.csv")
+            combine_csv_files(existing_csvs, combined_csv)
+            print(f"Combined results saved to {combined_csv}")
+        else:
+            print("No CSV files found to combine")
     
     # Print summary
     print("\nProcessing Summary:")

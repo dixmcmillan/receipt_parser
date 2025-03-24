@@ -1,2 +1,8 @@
 PyPDF2>=3.0.0
 pandas>=1.0.0
+
+[dev]
+pytest>=7.0.0
+pytest-cov>=4.0.0
+black>=22.0.0
+flake8>=6.0.0

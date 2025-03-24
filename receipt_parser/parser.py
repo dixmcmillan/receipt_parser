@@ -4,15 +4,19 @@ import csv
 import PyPDF2
 import argparse
 import os
+import glob
+from pathlib import Path
 from .categorizer import ReceiptCategorizer
 
 def clean_price(price_str):
+    # Remove any leading/trailing whitespace and ensure proper decimal format
     price_str = price_str.strip()
     if price_str.startswith('.'):
         price_str = '0' + price_str
     return price_str
 
 def clean_item_name(item_name):
+    # Clean up extra spaces and normalize item names
     return ' '.join(item_name.split())
 
 def parse_walmart_receipt(pdf_path, output_csv, categories_file=None):
@@ -20,10 +24,14 @@ def parse_walmart_receipt(pdf_path, output_csv, categories_file=None):
     # Ensure PDF file exists
     if not os.path.exists(pdf_path):
         raise FileNotFoundError(f"PDF file not found: {pdf_path}")
+        
     # Read PDF file
-    with open(pdf_path, 'rb') as file:
-        pdf_reader = PyPDF2.PdfReader(file)
-        text = pdf_reader.pages[0].extract_text()
+    try:
+        with open(pdf_path, 'rb') as file:
+            pdf_reader = PyPDF2.PdfReader(file)
+            text = pdf_reader.pages[0].extract_text()
+    except Exception as e:
+        raise RuntimeError(f"Error reading PDF {pdf_path}: {str(e)}")
     
     # Extract date
     date_match = re.search(r'([A-Z][a-z]{2}\s+\d{2},\s+\d{4})', text)
@@ -31,6 +39,26 @@ def parse_walmart_receipt(pdf_path, output_csv, categories_file=None):
         date_str = date_match.group(1)
         date_obj = datetime.strptime(date_str, '%b %d, %Y')
         date = date_obj.strftime('%Y-%m-%d')
+    else:
+        # Try alternative date format
+        date_match = re.search(r'(\d{2}/\d{2}/\d{4})', text)
+        if date_match:
+            date_str = date_match.group(1)
+            date_obj = datetime.strptime(date_str, '%m/%d/%Y')
+            date = date_obj.strftime('%Y-%m-%d')
+        else:
+            # Use PDF filename as fallback for date
+            filename = os.path.basename(pdf_path)
+            date_match = re.search(r'(\d{8})', filename)
+            if date_match:
+                date_str = date_match.group(1)
+                try:
+                    date_obj = datetime.strptime(date_str, '%Y%m%d')
+                    date = date_obj.strftime('%Y-%m-%d')
+                except ValueError:
+                    date = "Unknown"
+            else:
+                date = "Unknown"
     
     # Split text into lines and process each line
     lines = text.split('\n')
@@ -100,6 +128,8 @@ def parse_walmart_receipt(pdf_path, output_csv, categories_file=None):
     
     # Write to temporary CSV first
     temp_csv = output_csv + '.temp'
+    os.makedirs(os.path.dirname(output_csv) if os.path.dirname(output_csv) else '.', exist_ok=True)
+    
     with open(temp_csv, 'w', newline='', encoding='utf-8') as file:
         writer = csv.DictWriter(file, fieldnames=['date', 'store', 'item', 'qty_wgt', 'price'])
         writer.writeheader()
@@ -114,6 +144,7 @@ def parse_walmart_receipt(pdf_path, output_csv, categories_file=None):
         else:
             # If no categorization needed, just rename temp file
             os.rename(temp_csv, output_csv)
+        return True
     except Exception as e:
         print(f"Error during categorization: {str(e)}")
         # Ensure we don't leave temporary files
@@ -121,22 +152,110 @@ def parse_walmart_receipt(pdf_path, output_csv, categories_file=None):
             os.remove(temp_csv)
         raise
 
+def batch_process(folder_path, output_folder, categories_file=None, combine=False):
+    """
+    Process all PDF files in a folder.
+    
+    Args:
+        folder_path: Path to folder containing PDFs
+        output_folder: Folder to save output CSVs
+        categories_file: Optional path to categories CSV
+        combine: If True, combine all results into a single CSV
+    """
+    # Create output folder if it doesn't exist
+    os.makedirs(output_folder, exist_ok=True)
+    
+    # Find all PDF files in the folder
+    pdf_files = glob.glob(os.path.join(folder_path, "*.pdf"))
+    
+    if not pdf_files:
+        print(f"No PDF files found in {folder_path}")
+        return
+    
+    print(f"Found {len(pdf_files)} PDF files to process...")
+    
+    successful_files = []
+    failed_files = []
+    
+    for pdf_file in pdf_files:
+        filename = os.path.basename(pdf_file)
+        base_name = os.path.splitext(filename)[0]
+        output_path = os.path.join(output_folder, f"{base_name}.csv")
+        
+        print(f"Processing {filename}...")
+        
+        try:
+            parse_walmart_receipt(pdf_file, output_path, categories_file)
+            successful_files.append(output_path)
+            print(f"  ✓ Saved to {output_path}")
+        except Exception as e:
+            print(f"  ✗ Failed: {str(e)}")
+            failed_files.append(pdf_file)
+    
+    # Combine all CSVs if requested
+    if combine and successful_files:
+        combined_csv = os.path.join(output_folder, "combined_receipts.csv")
+        combine_csv_files(successful_files, combined_csv)
+        print(f"Combined results saved to {combined_csv}")
+    
+    # Print summary
+    print("\nProcessing Summary:")
+    print(f"  Successfully processed: {len(successful_files)} files")
+    print(f"  Failed to process: {len(failed_files)} files")
+    
+    if failed_files:
+        print("\nFailed files:")
+        for file in failed_files:
+            print(f"  - {os.path.basename(file)}")
+
+def combine_csv_files(csv_files, output_file):
+    """Combine multiple CSV files into a single file."""
+    if not csv_files:
+        return
+        
+    # Read the first file to get the header
+    combined_df = pd.read_csv(csv_files[0])
+    
+    # Append all other files
+    for file in csv_files[1:]:
+        df = pd.read_csv(file)
+        combined_df = pd.concat([combined_df, df], ignore_index=True)
+    
+    # Sort by date
+    if 'date' in combined_df.columns:
+        combined_df.sort_values(by='date', inplace=True)
+    
+    # Save combined file
+    combined_df.to_csv(output_file, index=False)
+
 def main():
     parser = argparse.ArgumentParser(description='Parse Walmart receipts to CSV format')
-    parser.add_argument('pdf_path', help='Path to the Walmart receipt PDF')
-    parser.add_argument('--output', '-o', help='Output CSV file path (optional)')
+    parser.add_argument('input', help='Path to the Walmart receipt PDF or folder containing PDFs')
+    parser.add_argument('--output', '-o', help='Output CSV file path or folder (optional)')
     parser.add_argument('--categories', '-c', help='Path to categories CSV file (optional)')
+    parser.add_argument('--batch', '-b', action='store_true', help='Process all PDFs in the input folder')
+    parser.add_argument('--combine', action='store_true', help='Combine all outputs into a single CSV (only with --batch)')
     
     args = parser.parse_args()
     
-    # If no output path specified, create one based on the PDF name
-    if not args.output:
-        base_name = os.path.splitext(os.path.basename(args.pdf_path))[0]
-        args.output = f"{base_name}_parsed.csv"
-    
     try:
-        parse_walmart_receipt(args.pdf_path, args.output, args.categories)
-        print(f"Parsed receipt saved to: {args.output}")
+        # Batch processing mode
+        if args.batch or os.path.isdir(args.input):
+            folder_path = args.input
+            output_folder = args.output if args.output else os.path.join(folder_path, "parsed")
+            batch_process(folder_path, output_folder, args.categories, args.combine)
+        
+        # Single file mode
+        else:
+            pdf_path = args.input
+            # If no output path specified, create one based on the PDF name
+            if not args.output:
+                base_name = os.path.splitext(os.path.basename(pdf_path))[0]
+                args.output = f"{base_name}_parsed.csv"
+            
+            parse_walmart_receipt(pdf_path, args.output, args.categories)
+            print(f"Parsed receipt saved to: {args.output}")
+    
     except Exception as e:
         print(f"Error: {str(e)}")
         exit(1)

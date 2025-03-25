@@ -27,12 +27,16 @@ class ReceiptCategorizer:
         """Load category mappings from CSV file."""
         try:
             df = pd.read_csv(file_path)
+            print(f"Loading categories from: {file_path}")
             # Create a dictionary of items to their categories
             for _, row in df.iterrows():
-                self.categories_map[row['Item'].lower()] = {
+                # Normalize the item name: lowercase and remove extra whitespace
+                item_name = ' '.join(row['Item'].lower().split())
+                self.categories_map[item_name] = {
                     'category': row['Category'],
                     'sub-category': row['Sub-Category']
                 }
+            print(f"Loaded {len(self.categories_map)} categories")
         except FileNotFoundError:
             print(f"Error: Categories file not found at {file_path}")
             print("Available paths:")
@@ -72,17 +76,25 @@ class ReceiptCategorizer:
         Categorize an item based on known mappings and rules.
         Returns tuple of (category, sub-category)
         """
-        item_lower = item_name.lower()
+        # Normalize the item name: lowercase and remove extra whitespace
+        item_lower = ' '.join(item_name.lower().split())
+        
+        # Debug print
+        print(f"Attempting to categorize: {item_name}")
+        print(f"Normalized form: {item_lower}")
+        print(f"Known items: {list(self.categories_map.keys())[:5]}...")  # Show first 5 items
         
         # Check exact matches first
         if item_lower in self.categories_map:
             cat_info = self.categories_map[item_lower]
+            print(f"Found match! Category: {cat_info['category']}, Sub-category: {cat_info['sub-category']}")
             return cat_info['category'], cat_info['sub-category']
         
         # If no match found and we're using master categories, add to unknown items
         if self.master_categories_file and item_name not in self.unknown_items:
+            print(f"No match found for: {item_name}")
             self.unknown_items.append(item_name)
-            
+        
         # Default category if no matches found
         return 'Uncategorized', 'Uncategorized'
     
